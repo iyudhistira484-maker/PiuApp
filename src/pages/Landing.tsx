@@ -20,7 +20,7 @@ import {
   usageProfile,
   type PlanRow,
 } from "../../shared/credits.mjs";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   ArrowRight,
@@ -46,6 +46,7 @@ import { Logo, Modal } from "../components/ui";
 import PromptBox from "../components/PromptBox";
 import TemplatePreview from "../components/TemplatePreview";
 import { templates } from "../lib/templates";
+import { api } from "../services/api";
 import { useStore } from "../lib/store";
 import { planBenefits } from "../lib/dashboard/plans";
 const faqs = [
@@ -118,6 +119,28 @@ export default function Landing() {
   }));
   const store = useStore();
   const hero = useRef<HTMLDivElement>(null);
+  // Informasi apakah provider pembayaran sudah terhubung di server ini. Datanya
+  // datang dari /api/public/site (publik, tanpa sesi), yang sama yang dibaca
+  // LandingNav dan paket Landing. Belum ada jawaban = anggap belum tersambung,
+  // maka tombol paket berbayar tetap membuka modal informasi.
+  const [paymentsConnected, setPaymentsConnected] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    api<any>("/public/site")
+      .then((data) => {
+        if (alive)
+          setPaymentsConnected(
+            Boolean(data?.settings?.enabled_services?.payments),
+          );
+      })
+      .catch(() => {
+        // Informasi publik tidak terjangkau: biarkan tombol pada perilaku
+        // default (belum tersedia untuk pembelian).
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
   useLandingMotion();
   const submit = () => {
     if (!prompt.trim()) return;
@@ -133,6 +156,18 @@ export default function Landing() {
     setPrompt(t.prompt);
     hero.current?.scrollIntoView({ behavior: "smooth", block: "center" });
     setTimeout(() => document.getElementById("hero-prompt")?.focus(), 300);
+  };
+  const pilihPaket = (plan: string) => {
+    if (paymentsConnected) {
+      // Sudah tersambung dengan provider pembayaran: calon pembeli diarahkan
+      // daftar/masuk, lalu langsung ke halaman paket untuk checkout paket ini.
+      const tujuan = "/upgrade?plan=" + plan;
+      navigate(
+        store.user ? tujuan : "/login?next=" + encodeURIComponent(tujuan),
+      );
+      return;
+    }
+    setModal("Paket " + plan);
   };
   const categories = [
     "Semua",
@@ -577,7 +612,7 @@ export default function Landing() {
                     "button " + (i === 1 ? "button-dark" : "button-outline")
                   }
                   onClick={() =>
-                    i === 0 ? navigate("/login") : setModal("Paket " + p.name)
+                    i === 0 ? navigate("/login") : pilihPaket(p.name)
                   }
                 >
                   {p.button}
@@ -592,7 +627,9 @@ export default function Landing() {
                 ))}
                 {i > 0 && (
                   <small className="pricing-disclaimer">
-                    Rencana harga · belum tersedia untuk pembelian
+                    {paymentsConnected
+                      ? "Checkout di halaman paket · pembayaran melalui provider terhubung"
+                      : "Rencana harga · belum tersedia untuk pembelian"}
                   </small>
                 )}
               </article>
@@ -698,7 +735,9 @@ export default function Landing() {
             <Link to="/dokumentasi">Tentang PiwuApp</Link>
             <a href="#security">Keamanan & privasi</a>
             <Link to="/aturan">Ketentuan penggunaan</Link>
-            <button onClick={() => setModal("Komunitas PiwuApp")}>Komunitas</button>
+            <button onClick={() => setModal("Komunitas PiwuApp")}>
+              Komunitas
+            </button>
           </div>
         </div>
         <div
